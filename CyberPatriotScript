@@ -553,14 +553,6 @@ echo "Bad Packages:" > badPackages.txt
 echo "" > allThePackages.txt
 (dpkg-query --list >> allThePackages.txt) &
 
-#Looks and sees if there are any illegal media files found on the computer in the home folder
-echo "Media files:" > mediaFiles.txt
-( for i in "*.jpg" "*.mp4" "*.mp6" "*.mp3" "*.mov" "*.png" "*.jpeg" "*.gif" "*.zip" "*.wav" "*.tif" "*.wmv" "*.avi" "*.mpeg" "*.tiff" "*.tar"; do find /home -name $i >> mediaFiles.txt; done; echo "" >> mediaFiles.txt ; echo "Done looking for bad media files" ) &
-
-#Looks and sees if there are any illegal media files found on the computer as a total
-echo "Media files:" > allMediaFiles.txt
-( for i in "*.jpg" "*.mp4" "*.mp6" "*.mp3" "*.mov" "*.png" "*.jpeg" "*.gif" "*.wav" "*.tif" "*.tiff" "*.wmv" "*.avi" "*.mpeg"; do find / -name $i >> allMediaFiles.txt; done; echo "" >> allMediaFiles.txt ; echo "Done looking for bad media files" ) &
-
 #Uses find, looks for type of regular file that has either permissions of suid of 2000 or 4000
 echo "Suspicious SUID permission files" > suspectFind.txt
 find / -type f \( -perm -04000 -o -perm -02000 \) >> suspectFind.txt 
