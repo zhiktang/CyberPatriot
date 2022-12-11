@@ -1,0 +1,31 @@
+#!/bin/bash
+#Add password policy
+echo " " > /tmp/stuff
+#echo "How many days do you want the max to be?" -n
+#read output
+output=15
+sed -i 's/PASS_MAX_DAYS\t9999/PASS_MAX_DAYS\t'"$output"'/g' /etc/login.defs
+#mv /tmp/stuff  /etc/login.defs
+#echo " " > /tmp/stuff
+sed  -i 's/PASS_MIN_DAYS\t0/PASS_MIN_DAYS\t10/g' /etc/login.defs
+
+sed -i 's/password\trequisite\t\t\tpam_cracklib.so/password\trequisite\t\t\tpam_cracklib.so ucredit=-1 lcredit=-1 ocredit=-1 dcredit=-1/g' /etc/pam.d/common-password
+
+
+#echo "password requisite pam_cracklib.so retry=3 minlen=6 difok=3 reject_username minclass=3 maxrepeat=2 dcredit=1 ucredit=1 lcredit=1 ocredit=1" >> /etc/pam.d/common-password
+#The sed command above should add the necessary stuff
+
+echo "#auth optional pam_tally.so deny=5 unlock_time=900 onerr=fail audit silent " >> /etc/pam.d/common-auth
+echo "password requisite pam_pwhistory.so use_authtok remember=24" >>  /etc/pam.d/common-password
+
+#echo "Finished Password Policy"
+
+#Add basic lockout policy
+cp /etc/pam.d/common-auth /etc/pam.d/common-auth~
+echo "auth [success=1 default=ignore] pam_unix.so nullok_secure 
+auth required pam_deny.so 	#was requisite
+auth required pam_permit.so
+auth required pam_tally2.so onerr=fail deny=3 unlock_time=1800" > /etc/pam.d/common-auth
+echo "Lockout policy enabled"
+
+
