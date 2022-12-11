@@ -553,13 +553,6 @@ echo "Bad Packages:" > badPackages.txt
 echo "" > allThePackages.txt
 (dpkg-query --list >> allThePackages.txt) &
 
-#Uses find, looks for type of regular file that has either permissions of suid of 2000 or 4000
-echo "Suspicious SUID permission files" > suspectFind.txt
-find / -type f \( -perm -04000 -o -perm -02000 \) >> suspectFind.txt 
-echo "" >> suspectFind.txt
-echo "Finished looking for suspicious files with SUID permissions"
-
-
 
 
 #install the needed programs like rkhunter, tree, etc
