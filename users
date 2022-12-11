@@ -1,0 +1,301 @@
+#!/bin/bash
+#This is a script written by Ryan Galligher in order to assist him in fixing vulnerabilities in the CyberPatriot competition.
+#This code comes as is and may not work on future versions of Linux or software it attempts to fix. Always test this on a non-competition image before use.
+
+
+#------------NOTE THIS-------------
+	#Needs file created with valid users and valid admins called users.txt and admin.txt
+	#DO NOT FORGET TO CREATE README WITH ALL USERS NAMES, ELSE IT WILL DELETE SOMEONE YOU DON'T WANT IT TO
+	#if adding users, create addusers.txt
+
+	#Look up /etc/services
+	
+	
+#Also, go into /etc/securetty and disallow the rest after 3-5, if not 1. Not sure how it would work for script
+#Also, DOES NOT DELETE THE FILE/COMMAND STARTING NETCAT BACKDOOR, just grabs the executable and moves it. Usually gives points, but should still try and pinpoint where it is coming from
+#Remember, go into dash, type remote and select Desktop sharing. This should be off and may be on, but just not sure how to script it yet
+#MAKE SURE NO BAD REPOSITORIES
+#SCRIPT EXPECTS TO BE RUN ON THE USER WHO IS LOGGED IN’S DESKTOP.
+
+#save all of the logs before you begin messing with stuff
+mkdir logs
+echo "auth log:" > logs/authLogs.txt
+cat /var/log/auth.log >> logs/authLogs.txt
+#echo "" > logs/authLogs.txt
+echo "dpkg log:" > logs/dpkgLogs.txt
+cat /var/log/dpkg.log >> logs/dpkgLogs.txt
+echo "" > logs/secureLogs.txt
+cat /var/log/secure > logs/secureLogs.txt
+echo  " " > logs/messageLogs.txt
+cat /var/log/messages >> logs/messageLogs.txt
+echo  " " > logs/historyLogs.txt
+cat /var/log/apt/history.log >> logs/historyLogs.txt
+echo " " > logs/historyLogs.txt
+cp /root/.bash_history logs/root.bash_history
+
+usrLoggedIn=$(pwd | cut -d'/' -f3)	#It’s either 3 or 2, depending
+debian="debian"
+distro=$(cat /etc/*-release | grep  "ID=" | grep -v "VERSION"| cut -d'=' -f2)
+#Stops you so that you can finish the Forensics. This is helpful because it will save the log files before you begin messing with the computer but doesn’t start doing anything until you are ready.
+echo -n "Are you ready to continue through the script? Are all of the Forensics Answered Yet?	"
+read info
+
+if [[ $(ls | grep -c -e "admin.txt" -e "users.txt") -ne 2 ]]; then
+    echo "Necessary text files for users and admins are not present. Shutting down script."
+    exit 1
+fi
+
+if [[ $EUID -ne 0 ]]; then
+   echo "Too Bad. This script must be run as root"
+   exit 1
+fi
+
+#change root password
+yes "H3LL0@" | passwd
+echo "Finished with changing root password"
+echo "" > usersChanged.txt
+
+
+#Change all the user passwords
+#For every user in the /etc/passwd file who has a UID >500 (generally newly added user), changes their password.
+for i in $(cat /etc/passwd | cut -d: -f 1,3,6 | grep -e "[5-9][0-9][0-9]" -e "[0-9][0-9][0-9][0-9]" | grep "/home" | cut -d: -f1) ; do 
+	yes "H3LL0@" | passwd $i ;
+	#This changes in the shadow file the max and min password days
+	passwd -x 85 $i;
+	passwd -n 15 $i;
+	#save the history into the log directory
+	cp /home/$i/.bash_history /logs/$i
+	echo $i  >> usersChanged.txt
+done;
+echo "Finished with changing all passwords"
+
+
+
+#For everyone in the addusers file, creates the user
+echo "" >> addusers.txt
+for i in $(cat $(pwd)/addusers.txt); do
+	useradd $i;
+done
+echo "Finished adding users"
+
+#Goes and makes users admin/not admin as needed
+#for every user with UID above 500 that has a home directory
+for i in $(cat /etc/passwd | cut -d: -f 1,3,6 | grep -e "[5-9][0-9][0-9]" -e "[0-9][0-9][0-9][0-9]" | grep "/home" | cut -d: -f1); do
+	#If the user is supposed to be a normal user but is in the sudo group, remove them from sudo
+	BadUser=0
+	if [[ $( grep -ic $i $(pwd)/users.txt ) -ne 0 ]]; then	
+		if [[ $( echo $( grep "sudo" /etc/group) | grep -ic $i ) -ne 0 ]]; then	
+			#if username is in sudo when shouldn’t
+			deluser $i sudo;
+			echo "removing $i from sudo" >> usersChanged.txt
+		fi
+if [[ $( echo $( grep "adm" /etc/group) | grep -ic $i ) -ne 0 ]]; then	
+			#if username is in adm when shouldn’t
+			deluser $i adm;
+			echo "removing $i from adm" >> usersChanged.txt
+		fi
+	else
+		BadUser=$((BadUser+1));
+	fi
+	#If user is supposed to be an adm but isn’t, raise privilege.
+	if [[ $( grep -ic $i $(pwd)/admin.txt ) -ne 0 ]]; then	
+		if [[ $( echo $( grep "sudo" /etc/group) | grep -ic $i ) -eq 0 ]]; then	
+			#if username isn't in sudo when should
+			usermod -a -G "sudo" $i
+			echo "add $i to sudo"  >> usersChanged.txt
+		fi
+if [[ $( echo $( grep "adm" /etc/group) | grep -ic $i ) -eq 0 ]]; then	
+			#if username isn't in adm when should
+			usermod -a -G "adm" $i
+			echo "add $i to adm"  >> usersChanged.txt
+		fi
+	else
+		BadUser=$((BadUser+1));
+	fi
+	if [[ $BadUser -eq 2 ]]; then
+		echo "WARNING: USER $i HAS AN ID THAT IS CONSISTENT WITH A NEWLY ADDED USER YET IS NOT MENTIONED IN EITHER THE admin.txt OR users.txt FILE. LOOK INTO THIS." >> usersChanged.txt
+	fi
+done
+echo "Finished changing users"
+
+#Also need to add a check for if in other insecure places like shadow group
+
+
+
+
+#Reinstalls many (if not all) of the packages on the computer. Use this if you think the config files were royally messed up and too Trojaned to fix normally. Will take long time
+echo  -n "Reinstall Everything?	"
+read output
+if [[ $output =~ ^[Yy]$ ]]
+then 
+	apt-get -V -y install --reinstall coreutils
+fi
+
+
+
+
+
+
+echo "This will attempt to turn on firewall and turn on logging" > Firewall.txt
+echo "Starting Download of ufw, this may take awahile"
+#Turns the firewall on, resets ufw to default, the turns logging on high, and adds in some standard rules. Firestarter package might be good gui for ufw
+apt-get install ufw -y >> /dev/null 2>&1
+(ufw enable  >> Firewall.txt; yes | ufw reset  >> Firewall.txt; ufw enable  >> Firewall.txt; ufw allow http; ufw allow https; ufw deny 23; ufw deny 2049; ufw deny 515; ufw deny 111; ufw logging high >> Firewall.txt; echo "" >> Firewall.txt) &
+#The little & at the end will cause this entire section of code to be run synchronously with the rest of this script, meaning that it will execute in the background while the rest of this script continues on. NOTE: IF YOU CLOSE THE TERMINAL, IT WILL TERMINATE THIS BACKGROUND PROCESS AS WELL.
+echo "Working on ufw"
+#allow http - means
+#allow https - means
+#deny 23 - means
+#deny 2049 - means
+#deny 515 - means
+#deny 111 - means
+
+#Attempts to use iptables to set a few rules to secure computer DO NOT DISTURB WHAT YOU DON’T UNDERSTAND
+#iptables -F #clears all existing rules
+#DO NOT DO THIS WITHOUT KNOWING WHAT YOU ARE DOING!!! THIS IS WHAT BROKE THE NETWORK IN THE IMAGE
+
+#allow all incoming ssh
+#iptables –A INPUT –I eth0 –p tcp –dport 22 –m state –state NEW, ESTABLISHED –j ACCEPT
+
+#prevent DoS attack on HTTP
+#iptables –A INPUT –p tcp –dport 80 –m limit –limit 25/minute –limit-burst 100 –j ACCEPT
+
+#log Dropped Packets
+#iptables –N LOGGING
+#iptables –A INPUT –j LOGGING
+#iptables –A LOGGING –m limit –limit 2/min –j LOG –log-prefix "IPTables Packet Dropped: " –log-level iptables –A LOGGING –j DROP
+#DO NOT USE THIS AS CURRENTLY STATED, AS THIS WILL GO TO THE LOGGING CHAIN AND THEN BEGIN DROPPING ALL PACKETS IT RECIEVES. ONLY REASON STILL HERE IS SO I CAN LEARN HOW TO NOT DO THIS
+
+#iptables -A INPUT -p tcp -m tcp --dport 80 -m state --state NEW,ESTABLISHED -j ACCEPT
+#iptables -A INPUT -p tcp -m tcp --dport 22 -m state --state NEW,ESTABLISHED -j ACCEPT
+#iptables -A INPUT -I lo -j ACCEPT
+#iptables -A INPUT -j DROP
+
+#network security
+#  iptables -A INPUT -p tcp -s 0/0 -d 0/0 --dport 23 -j DROP         #Block Telnet
+#  iptables -A INPUT -p tcp -s 0/0 -d 0/0 --dport 2049 -j DROP       #Block NFS
+#  iptables -A INPUT -p udp -s 0/0 -d 0/0 --dport 2049 -j DROP       #Block NFS
+#  iptables -A INPUT -p tcp -s 0/0 -d 0/0 --dport 6000:6009 -j DROP  #Block X-Windows
+#  iptables -A INPUT -p tcp -s 0/0 -d 0/0 --dport 7100 -j DROP       #Block X-Windows font server
+#  iptables -A INPUT -p tcp -s 0/0 -d 0/0 --dport 515 -j DROP        #Block printer port
+#  iptables -A INPUT -p udp -s 0/0 -d 0/0 --dport 515 -j DROP        #Block printer port
+#  iptables -A INPUT -p tcp -s 0/0 -d 0/0 --dport 111 -j DROP        #Block Sun rpc/NFS
+#  iptables -A INPUT -p udp -s 0/0 -d 0/0 --dport 111 -j DROP        #Block Sun rpc/NFS
+#  iptables -A INPUT -p all -s localhost  -i eth0 -j DROP            #Deny outside packets from internet which claim to be from your loopback interface.
+
+
+
+#Will go into the lightdm library and turn off guest accounts
+/usr/lib/lightdm/lightdm-set-defaults -l false
+echo $? >> WorkProperly.txt
+echo "if last was 0, then lightdm was turned off properly" >> WorkProperly.txt
+
+echo "allow-guest=false" >> /etc/lightdm/lightdm.conf
+echo "" >> WorkProperly.txt
+
+#Disables guest option and usernames on login screen (in /etc/lightdm/lightdm.conf)
+TEXT="[SeatDefaults]\nautologin-guest=false\nautologin-user=none\nautologin-user-timeout=0\nautologin-session=lightdm-autologin\nallow-guest=false\ngreeter-hide-users=true"
+printf $TEXT > /etc/lightdm/lightdm.conf
+echo "Finished with Guest accounts"
+
+#Lock people from logging straight into the root account
+passwd -l root
+echo "Finished locking the root account"
+
+#Change the ownership and permissions of files that could commonly be exploited otherwise
+chown root:root /etc/securetty
+chmod 0600 /etc/securetty
+chmod 644 /etc/crontab
+chmod 640 /etc/ftpusers
+chmod 440 /etc/inetd.conf
+chmod 440 /etc/xinetd.conf
+chmod 400 /etc/inetd.d
+chmod 644 /etc/hosts.allow
+chmod 440 /etc/sudoers
+chmod 640 /etc/shadow
+chown root:root /etc/shadow
+echo "Finished changing permissions"
+
+
+#Remove unwanted alias
+echo "Bad Aliases:" > AliasesAndFunctions.txt
+for i in $(echo $(alias | grep -vi -e "alias egrep='egrep --color=auto'" -e "alias fgrep='fgrep --color=auto'" -e "alias grep='grep --color=auto'" -e "alias l='ls -CF'" -e "alias la='ls -A'" -e "alias ll='ls -alF'" -e "alias ls='ls --color=auto'" | cut -f 1 -d=) | cut -f 2 -d ' ') ; do 
+	echo $(alias | grep -e $i)  >> AliasesAndFunctions.txt;
+	unalias $i;
+done
+echo "Finished unaliasing"
+
+#Save what's a function currently
+echo "" >> AliasesAndFunctions.txt
+echo "Functions:" >> AliasesAndFunctions.txt
+declare -F >> AliasesAndFunctions.txt
+echo "Saved functions"
+
+#Clears out the control-alt-delete, as this could possibly be a problem
+echo "# control-alt-delete - emergency keypress handling
+#
+# This task is run whenever the Control-Alt-Delete key combination is
+# pressed, and performs a safe reboot of the machine.
+description	\"emergency keypress handling\"
+author		\"Scott James Remnant <scott@netsplit.com>\"
+start on control-alt-delete
+task
+exec false" > /etc/init/control-alt-delete.conf
+echo "Finished cleaning control-alt-delete"
+
+
+#goes and replaces the /etc/sudoers file with a clean one
+if [[ $(ls -la /etc | grep -ic sudoers) -ne 0 ]]; then
+	echo "Replacing /etc/sudoers" >> WorkProperly.txt
+cp /etc/sudoers /etc/.sudoers
+echo "#
+# This file MUST be edited with the 'visudo' command as root.
+#
+# Please consider adding local content in /etc/sudoers.d/ instead of
+# directly modifying this file.
+#
+# See the man page for details on how to write a sudoers file.
+#
+Defaults	env_reset
+Defaults	secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"
+# Host alias specification
+# User alias specification
+# Cmnd alias specification
+# User privilege specification
+root	ALL=(ALL:ALL) ALL
+# Members of the admin group may gain root privileges
+%admin ALL=(ALL) ALL
+# Allow members of group sudo to execute any command
+%sudo	ALL=(ALL:ALL) ALL
+# See sudoers(5) for more information on \"#include\" directives:
+
+#includedir /etc/sudoers.d" > /etc/sudoers
+echo "#
+# As of Debian version 1.7.2p1-1, the default /etc/sudoers file created on
+# installation of the package now includes the directive:
+# 
+# 	#includedir /etc/sudoers.d
+# 
+# This will cause sudo to read and parse any files in the /etc/sudoers.d 
+# directory that do not end in '~' or contain a '.' character.
+# 
+# Note that there must be at least one file in the sudoers.d directory (this
+# one will do), and all files in this directory should be mode 0440.
+# 
+# Note also, that because sudoers contents can vary widely, no attempt is 
+# made to add this directive to existing sudoers files on upgrade.  Feel free
+# to add the above directive to the end of your /etc/sudoers file to enable 
+# this functionality for existing installations if you wish!
+#" > /etc/sudoers.d/README
+
+#Looks to see if there are any sudo configurations in sudoers.d. If there are, these are generally viruses and should be deleted. However, just in case they aren’t, this moves them to the folder that the script is currently running in.
+for i in $(ls /etc/sudoers.d | grep -vi -e "\." -e "README" -e "total") ; do
+	#Badname=$(ls /etc/sudoers.d | grep -v -e "\." -e "README" -e "total");	used to work when there also a -c, but would flip if nothing there
+	cp /etc/sudoers.d/$i $(pwd)/$i		#/etc/sudoers.d/$Badname $(pwd)/$Badname;
+	rm /etc/sudoers.d/$i			#/etc/sudoers.d/$Badname;
+	echo $i " was a found file that shouldn't be there, copied and removed it" >> WorkProperly.txt
+done
+echo "" >> WorkProperly.txt
+
+echo "Finished with sudoers, fixed main sudoers and cleaned README and tried to delete any other ones"
+fi
